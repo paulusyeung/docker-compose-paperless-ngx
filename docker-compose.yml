@@ -1,0 +1,103 @@
+services:
+  broker:
+    container_name: broker
+    image: docker.io/library/redis:7
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    networks:
+      - paperless-network
+
+  db:
+    container_name: db
+    image: docker.io/library/postgres:15
+    restart: unless-stopped
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: paperless
+      POSTGRES_USER: paperless
+      POSTGRES_PASSWORD: paperless
+    networks:
+      - paperless-network
+
+  webserver:
+    container_name: webserver
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    restart: unless-stopped
+    depends_on:
+      - db
+      - broker
+      - gotenberg
+      - tika
+    ports:
+      - "8000:8000"
+    volumes:
+      - data:/usr/src/paperless/data
+      - media:/usr/src/paperless/media
+      - ./export:/usr/src/paperless/export
+      - ./consume:/usr/src/paperless/consume
+    # env_file: docker-compose.env 改為 .env
+    environment:
+      PAPERLESS_REDIS: redis://broker:6379
+      PAPERLESS_DBHOST: db
+      PAPERLESS_TIKA_ENABLED: 1
+      PAPERLESS_TIKA_GOTENBERG_ENDPOINT: http://gotenberg:3000
+      PAPERLESS_TIKA_ENDPOINT: http://tika:9998
+    networks:
+      - paperless-network
+
+  gotenberg:
+    container_name: gotenberg
+    image: docker.io/gotenberg/gotenberg:8.7  # 7.10
+    restart: unless-stopped
+    command:
+      - "gotenberg"
+      - "--chromium-disable-javascript=true"
+      - "--chromium-allow-list=file:///tmp/.*"
+      - "--uno-listener-start-timeout=90s"
+      - "--api-timeout=900s"
+    networks:
+      - paperless-network
+
+  tika:
+    container_name: tika
+    image: ghcr.io/paperless-ngx/tika:latest
+    restart: unless-stopped
+    networks:
+      - paperless-network
+
+volumes:
+  data:
+    name: web-data
+    driver: local
+    driver_opts:
+      type: 'none'
+      o: 'bind'
+      device: '/data/web-data'
+  media:
+    name: web-media
+    driver: local
+    driver_opts:
+      type: 'none'
+      o: 'bind'
+      device: '/data/web-media'
+  pgdata:
+    name: db-data
+    driver: local
+    driver_opts:
+      type: 'none'
+      o: 'bind'
+      device: '/data/db-data'
+  redisdata:
+    name: broker-data
+    driver: local
+    driver_opts:
+      type: 'none'
+      o: 'bind'
+      device: '/data/broker-data'
+
+networks:
+  paperless-network:
+    name: paperless-network
+    driver: bridge

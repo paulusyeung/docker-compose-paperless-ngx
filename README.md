@@ -152,3 +152,100 @@ USERMAP_GID=1000
 5. Start the services using docker compose up -d.
 
 Paperless-ngx offers a digital solution for managing your documents securely and efficiently. With this Docker Compose setup, you can easily deploy Paperless-ngx along with its dependencies for a comprehensive document management system.
+
+## Setup SAMBA
+
+#### Prepare SAMBA Server
+
+```bash
+# install SAMBA
+sudo apt install samba
+
+# create group 'paperless'
+sudo groupadd paperless
+
+# addd primary user 'marche' to paperless
+# The -a (append) switch is essential. Otherwise, the user will be removed from any groups, not in the list.
+# The -G switch takes a (comma-separated) list of additional groups to assign the user to.
+sudo usermod -a -G paperless marche
+
+# Show primary user id and group id
+id
+
+# use them in docker-compose.env
+USERMAP_UID=1000    # primary user
+USERMAP_GID=1001    # group paperless
+
+# create user 'dmsuser' and add to group 'paperless'
+# this user 'dmsuser' will be used to connect to the shared folder
+sudo useradd dmsuser
+sudo usermod -a -G paperless dmsuser
+```
+
+#### Setup SAMBA Shared Drive
+
+```bash
+# Create the shared directory
+sudo mkdir /srv/dms/dropbox
+
+# Modify its permissions
+sudo chmod 777 /srv/dms/dropbox
+
+# Modify smb.conf
+sudo nano /etc/samba/smb.conf
+
+# Add the following section
+[dropbox]
+   comment = paperless consumption
+   path = /srv/dms/dropbox
+   valid users = @paperless
+   public = no
+   browsable = yes
+   guest ok = no
+   read only = no
+   writable = yes
+```
+
+#### Setup PAPERLESS-NGX Consume Folder
+
+If using SAMBA shared folder:
+
+```bash
+services
+  webserver:
+    volumes:
+      - /srv/paperless/consume:/usr/src/paperless/consume
+```
+
+If using Synology shared folder:
+
+```bash
+# Install the CIFS utilities if not already present
+sudo apt update
+sudo apt install cifs-utils
+
+# Create a mount point
+sudo mkdir -p /mnt/paperless_consume
+
+# Mount the Synology shared folder
+sudo mount -t cifs //synology_ip_address/paperless_consume /mnt/paperless_consume -o username=your_username,password=your_password
+
+# Modify fstab to auto-mount the Synology shared folder when boot
+sudo nano /etc/fstab
+
+# Append line to the end
+//synology_ip_address/paperless_consume /mnt/paperless_consume cifs uid=1000,gid=1000,rw,dir_mode=0777,file_mode=0777,vers=2.0,username=your_username,password=your_password 0 0
+
+# Modify the docker-compose.yml
+services:
+  webserver:
+    volumes:
+      - /volume1/paperless_consume:/usr/src/paperless/consume
+
+# Add these PAPERLESS parameters to docker-compose.env
+PAPERLESS_CONSUMER_POLLING=10
+PAPERLESS_CONSUMER_POLLING_RETRY_COUNT=4
+PAPERLESS_CONSUMER_POLLING_DELAY=10
+
+
+```
